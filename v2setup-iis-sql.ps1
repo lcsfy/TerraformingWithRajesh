@@ -1,61 +1,47 @@
 # IIS + Firewall
-Install-WindowsFeature -Name Web-Server -IncludeManagementTools
-netsh advfirewall firewall add rule name="Open Port 80" dir=in action=allow protocol=TCP localport=80
+Install-WindowsFeature Web-Server -IncludeManagementTools
+netsh advfirewall firewall add rule name="HTTP80" dir=in action=allow protocol=TCP localport=80
 
-# SQL Express install
-New-Item -ItemType Directory -Path 'C:\temp' -Force | Out-Null
-$sqlUrl = 'https://download.microsoft.com/download/2/1/0/210B5C9A-DF68-4AA0-9A2D-6A1E1E6A9791/SQL2019-SSEI-Expr.exe'
-$sqlInstaller = 'C:\temp\SQL2019-SSEI-Expr.exe'
-Invoke-WebRequest -Uri $sqlUrl -OutFile $sqlInstaller
-& $sqlInstaller /ACTION=Install /QUIET /IACCEPTSQLSERVERLICENSETERMS /FEATURES=SQLENGINE /INSTANCENAME=SQLEXPRESS /SQLSVCACCOUNT='NT AUTHORITY\NETWORK SERVICE' /ADDCURRENTUSERASSQLADMIN=1
+# SQL installer
+New-Item C:\temp -ItemType Directory -Force | Out-Null
+Invoke-WebRequest 'https://download.microsoft.com/download/2/1/0/210B5C9A-DF68-4AA0-9A2D-6A1E1E6A9791/SQL2019-SSEI-Expr.exe' -OutFile C:\temp\SQL.exe
+Start-Process C:\temp\SQL.exe -ArgumentList '/QS /ACTION=Install /FEATURES=SQLENGINE /INSTANCENAME=SQLEXPRESS /SQLSVCACCOUNT="NT AUTHORITY\NETWORK SERVICE" /ADDCURRENTUSERASSQLADMIN=1 /IACCEPTSQLSERVERLICENSETERMS=1' -Wait -NoNewWindow
 
-# DEBUG: Asteapta SQL service + testeaza
-Write-Output "Waiting for SQL Express..."
-Start-Sleep -Seconds 60
-$sqlService = Get-Service -Name 'SQL Server (SQLEXPRESS)'
-if ($sqlService.Status -ne 'Running') { 
-  Restart-Service 'SQL Server (SQLEXPRESS)' -Force
-  Start-Sleep -Seconds 30 
+# CHECK + WAIT LOOP - asteapta SQL pana porneste (max 5 min)
+Write-Output "Waiting for SQL Express service..."
+$timeout = 300  # 5 min
+$elapsed = 0
+do {
+  $sqlSvc = Get-Service "SQL Server (SQLEXPRESS)" -ErrorAction SilentlyContinue
+  if ($sqlSvc -and $sqlSvc.Status -eq 'Running') {
+    Write-Output "SQL Express is running!"
+    break
+  }
+  Write-Output "SQL not ready... waiting ($elapsed/$timeout sec)"
+  Start-Sleep 10
+  $elapsed += 10
+} while ($elapsed -lt $timeout)
+
+if (-not $sqlSvc -or $sqlSvc.Status -ne 'Running') {
+  Write-Output "SQL Express FAILED to start - timeout!"
+  $status = "SQL FAILED"
+} else {
+  # Test sqlcmd
+  Start-Sleep 20  # Extra wait pentru sqlcmd
+  sqlcmd -S .\SQLEXPRESS -E -Q "IF NOT EXISTS(SELECT * FROM sys.databases WHERE name='DemoDB') CREATE DATABASE DemoDB; USE DemoDB; IF OBJECT_ID('Nume') IS NULL CREATE TABLE Nume(Id INT IDENTITY PRIMARY KEY, Name VARCHAR(50)); DELETE FROM Nume; INSERT INTO Nume(Name) VALUES('Lucian'), ('Record 2'); SELECT COUNT(*) AS Records FROM Nume;"
+  $records = sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q "SELECT COUNT(*) AS Total FROM Nume"
+  $status = "SQL OK - $records records created!"
 }
-
-# Test conexiune SQL
-Write-Output "Testing SQL connection..."
-sqlcmd -S .\SQLEXPRESS -E -Q "SELECT @@VERSION" > C:\temp\sql-test.txt
-
-# Creeaza DB + date - cu verificare
-Write-Output "Creating DB..."
-sqlcmd -S .\SQLEXPRESS -E -Q "IF NOT EXISTS(SELECT * FROM sys.databases WHERE name='DemoDB') CREATE DATABASE DemoDB"
-sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q "IF OBJECT_ID('Nume','U') IS NULL CREATE TABLE Nume(Id INT IDENTITY PRIMARY KEY, Nume VARCHAR(100))"
-sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q "DELETE FROM Nume"
-sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q "INSERT INTO Nume(Nume) VALUES('Lucian'), ('Rajesh'), ('Demo User')"
-
-# Citeste rezultatul
-$recordCount = sqlcmd -S .\SQLEXPRESS -E -d DemoDB -h-1 -Q "SELECT COUNT(*) AS Total FROM Nume"
-$recordsRaw = sqlcmd -S .\SQLEXPRESS -E -d DemoDB -h-1 -Q "SELECT CAST(Id AS VARCHAR)+': '+Nume FROM Nume"
-$records = $recordsRaw -replace "`r`n","<br>"
 
 $content = @"
 <!DOCTYPE html>
-<html>
-<head><title>IIS + SQL Debug</title>
-<meta charset='UTF-8'>
-<style>body{font-family:Arial;padding:20px;} pre{background:#f5f5f5;padding:15px;}</style>
-</head>
-<body>
-<h1>IIS + SQL Express Debug Mode</h1>
-<h2>DemoDB.Nume Status:</h2>
-<p><b>Total records:</b> $recordCount</p>
-<h3>All records:</h3>
-<pre>$records</pre>
-<h3>SQL Service:</h3>
-<pre>$(Get-Service 'SQL Server (SQLEXPRESS)' | Select Status,StartType)</pre>
-<h3>Debug files:</h3>
-<ul>
-<li><a href='/temp/sql-test.txt'>SQL Version Test</a></li>
-</ul>
-</body>
-</html>
+<html><head><title>IIS + SQL Status</title><meta charset='UTF-8'></head><body style='font-family:Arial;padding:40px;'>
+<h1>Setup Complete</h1>
+<h2>SQL Express: $status</h2>
+<p>Script finished: $(Get-Date)</p>
+<p>Service status: $((Get-Service 'SQL Server (SQLEXPRESS)' -ErrorAction SilentlyContinue).Status)</p>
+</body></html>
 "@
 
-Set-Content -Path 'C:\inetpub\wwwroot\index.html' -Value $content -Encoding UTF8
+Set-Content 'C:\inetpub\wwwroot\index.html' $content
 iisreset /restart
