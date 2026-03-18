@@ -6,7 +6,7 @@ param(
 )
 
 # Fallback FQDN pentru test - PUNE AICI FQDN-ul tău real din terraform output sql_server_fqdn
-$TestFqdn = "PUNE_AICI_FQDN_REAL.sql.database.windows.net"
+$TestFqdn = "sql-iis-demo-jgj90dfn.database.windows.net"
 $SqlServer = if ($SqlServer -eq "${azurerm_mssql_server.sql_server.fqdn}:1433") { "$TestFqdn`:1433" } else { $SqlServer }
 $connStr = "Server=$SqlServer;Database=$DbName;User Id=$SqlUser;Password=$SqlPass;Encrypt=yes;TrustServerCertificate=no;"
 
