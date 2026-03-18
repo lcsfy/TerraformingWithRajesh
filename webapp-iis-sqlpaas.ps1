@@ -6,7 +6,7 @@ param(
 )
 
 # Connection string comun (folosit și de ASP)
-$connStr = "Server=$SqlServer;Database=$DbName;User Id=$SqlUser;Password=$SqlPass;Encrypt=yes;TrustServerCertificate=no;"
+$connStr = "Server=$SqlServer"+",1433"+";Database=$DbName;User Id=$SqlUser;Password=$SqlPass;Encrypt=yes;TrustServerCertificate=no;"
 
 Write-Output "Connecting to: $SqlServer"
 
@@ -125,14 +125,16 @@ async function refreshTable() {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         let html = '';
-        data.forEach(function(row) {
-            html += '<tr><td>' + row.Id + '</td><td>' + row.Nume + '</td><td>' +
-                    new Date(row.Added).toLocaleString() +
-                    '</td><td><button onclick="deleteRecord(' + row.Id +
-                    ')">🗑️</button></td></tr>';
+        data.forEach(row => {
+            html += \`<tr>
+                        <td>\${row.Id}</td>
+                        <td>\${row.Nume}</td>
+                        <td>\${new Date(row.Added).toLocaleString()}</td>
+                        <td><button onclick="deleteRecord(\${row.Id})">🗑️</button></td>
+                      </tr>\`;
         });
         $('#dataTable tbody').html(html);
-        showStatus('Loaded ' + data.length + ' records');
+        showStatus(\`Loaded \${data.length} records\`);
     } catch(e) {
         showStatus('Error loading: ' + e.message, true);
     }
