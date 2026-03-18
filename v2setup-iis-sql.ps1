@@ -1,84 +1,57 @@
-Install-WindowsFeature -Name Web-Server -IncludeManagementTools | Out-Null
+# Prereqs (VC++ redist pentru SQL)
+$vcUrl = 'https://aka.ms/vs/17/release/vc_redist.x64.exe'
+Invoke-WebRequest $vcUrl -OutFile 'C:\temp\vc_redist.exe' -UseBasicParsing
+& 'C:\temp\vc_redist.exe' /quiet /norestart | Out-Null
 
-New-Item 'C:\temp' -ItemType Directory -Force | Out-Null
+# IIS
+Install-WindowsFeature Web-Server,Web-Mgmt-Tools | Out-Null
 
-# SQL installer
+# Clean temp
+rmdir C:\temp -Recurse -Force -ErrorAction SilentlyContinue
+New-Item C:\temp -Force | Out-Null
+
+# SQL
 $sqlUrl = 'https://download.microsoft.com/download/7/f/8/7f8a9c43-8c8a-4f7c-9f92-83c18d96b681/SQL2019-SSEI-Expr.exe'
-$sqlPath = 'C:\temp\SQL2019-SSEI-Expr.exe'
-Invoke-WebRequest $sqlUrl -OutFile $sqlPath -UseBasicParsing
+$sqlExe = 'C:\temp\SQL.exe'
+Invoke-WebRequest $sqlUrl -OutFile $sqlExe
 
-# Instal cu wait + log
-Start-Process $sqlPath -ArgumentList @(
-    '/ACTION=Install','/QUIET','/NORESTART','/IACCEPTSQLSERVERLICENSETERMS',
-    '/FEATURES=SQLENGINE','/INSTANCENAME=SQLEXPRESS',
-    '/SQLSVCACCOUNT="NT AUTHORITY\NETWORK SERVICE"','/ADDCURRENTUSERASSQLADMIN=1',
-    '/SKIPRULES=RebootRequired','/LOGGINGLEVEL=Full','/SQLLOGDIR="C:\temp"'
-) -Wait -NoNewWindow
+Write-Output "Installing SQL..."
+$proc = Start-Process $sqlExe -ArgumentList @(
+    '/ACTION=Install','/QS','/NORESTART','/IACCEPTSQLSERVERLICENSETERMS',
+    '/FEATURES=SQLENGINE','/INSTANCENAME=SQLEXPRESS','/TCPENABLED=1',
+    '/SQLSVCACCOUNT="NT AUTHORITY\NETWORK SERVICE"','/SQLSYSADMINACCOUNTS="BUILTIN\Administrators"',
+    '/SKIPRULES=RebootRequired','/IAcceptSQLServerLicenseTerms'
+) -PassThru -Wait
 
-if ($LASTEXITCODE -ne 0) { 
-    Get-Content 'C:\temp\Summary.txt' | Write-Output 
-    exit $LASTEXITCODE 
+if ($proc.ExitCode -ne 0) {
+    Write-Output "SQL FAIL exit: $($proc.ExitCode). Logs in C:\temp"
+    Get-Content C:\temp\*.log | Select -Last 20
+    exit 1
 }
 
-# SUPER WAIT pentru SQL + DB ready (max 20min)
-$maxWait = 1200  # secunde
-$start = Get-Date
-do {
-    $service = Get-Service 'MSSQL$SQLEXPRESS' -ErrorAction SilentlyContinue
-    if ($service -and $service.Status -eq 'Running') {
-        # Test sqlcmd
-        $version = sqlcmd -S .\SQLEXPRESS -E -Q "SELECT @@VERSION" -h-1 -W -w 300 2>$null
-        if ($version -and $version -match 'Microsoft SQL Server') { break }
+# Wait & test SQL (10min max)
+for ($i=0; $i -lt 120; $i++) {
+    if ((Get-Service MSSQL$SQLEXPRESS).Status -eq 'Running') {
+        Start-Sleep 60
+        try {
+            sqlcmd -S .\SQLEXPRESS -E -Q "SELECT @@VERSION" -h-1 -W
+            break
+        } catch {}
     }
     Start-Sleep 30
-    $elapsed = (Get-Date) - $start
-} while ($elapsed.TotalSeconds -lt $maxWait)
-
-if ($elapsed.TotalSeconds -ge $maxWait) { 
-    Write-Error "SQL/DB timeout after 20min. Service: $($service.Status)"; exit 1 
 }
 
-Write-Output "SQL ready! Version: $version"
+# DB live
+sqlcmd -S .\SQLEXPRESS -E -Q "CREATE DATABASE DemoDB"
+sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q "CREATE TABLE Nume(Id INT PRIMARY KEY, Nume VARCHAR(50)); INSERT INTO Nume VALUES (1,'Lucian'),(2,'Success'),(3,'$(hostname)')"
 
-# Creează DB + table + data
-sqlcmd -S .\SQLEXPRESS -E -Q "
-IF NOT EXISTS(SELECT name FROM sys.databases WHERE name='DemoDB') 
-    CREATE DATABASE DemoDB;
-"
-sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q "
-IF OBJECT_ID('Nume','U') IS NULL 
-    CREATE TABLE Nume(Id INT IDENTITY PRIMARY KEY, Nume VARCHAR(100));
-DELETE FROM Nume;
-INSERT INTO Nume(Nume) VALUES('Lucian Enache'),('Demo User'),('Azure Terraform');
-"
+# Query live pentru HTML
+$count = sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q "SELECT COUNT(*) FROM Nume" -h-1
+$data = sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q "SELECT * FROM Nume" -h-1
 
-# LIVE QUERY pentru HTML
-$recordCount = sqlcmd -S .\SQLEXPRESS -E -d DemoDB -h-1 -Q "SELECT COUNT(*) FROM Nume"
-$liveRecords = sqlcmd -S .\SQLEXPRESS -E -d DemoDB -h-1 -Q "SELECT TOP 10 CAST(Id AS VARCHAR(10)) + ': ' + Nume FROM Nume ORDER BY Id" -W
+@"
+<h1>LIVE SQL Data ($count rows)</h1><pre>$data</pre>
+"@ | Out-File C:\inetpub\wwwroot\index.html -Encoding UTF8
 
-# Gen HTML cu live data
-$html = @"
-<!DOCTYPE html>
-<html><head><title>IIS + SQL Live Demo</title>
-<style>body{font-family:Segoe UI;padding:20px;max-width:800px;margin:auto;}
-h1{color:#0078d4;} pre{background:#f0f0f0;padding:15px;border-radius:8px;font-family:Consolas;}
-.stats{background:#e3f2fd;padding:10px;border-radius:5px;}</style>
-</head><body>
-<h1>✅ IIS + SQL Server Express 2019</h1>
-<div class='stats'>
-<p><strong>Live Records:</strong> $recordCount</p>
-<p><strong>Query Time:</strong> $(Get-Date -Format 'HH:mm:ss')</p>
-<p><strong>Server:</strong> $(hostname)</p>
-</div>
-<h2>DemoDB.dbo.Nume (LIVE QUERY):</h2>
-<pre>$liveRecords</pre>
-<hr><p>Terraform CustomScriptExtension success! <a href='https://github.com'>Source</a></p>
-</body></html>
-"@
-$html | Out-File 'C:\inetpub\wwwroot\index.html' -Encoding UTF8
-
-# Firewall + IIS
-netsh advfirewall firewall add rule name='HTTP80' dir=in action=allow protocol=TCP localport=80
+netsh advfirewall firewall add rule name="Port80" dir=in action=allow protocol=TCP localport=80
 iisreset
-
-Write-Output "✅ Setup done! Visit http://localhost/index.html"
