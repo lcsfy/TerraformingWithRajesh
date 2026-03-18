@@ -1,6 +1,6 @@
 Install-WindowsFeature -Name Web-Server -IncludeManagementTools
 
-$content = '<html><body><h1>Hello from Lucian IIS + SQL demo</h1></body></html>'
+$content = '<html><body><h1>Hello from Lucian IIS + SQL demo test</h1></body></html>'
 Set-Content -Path 'C:\inetpub\wwwroot\index.html' -Value $content -Encoding UTF8
 
 New-Item -ItemType Directory -Path 'C:\temp' -Force | Out-Null
