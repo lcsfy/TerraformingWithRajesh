@@ -2,7 +2,7 @@ param(
   [string]$SqlServer,
   [string]$DbName = "DemoDB",
   [string]$SqlUser = "sqladmin",
-  [string]$SqlPass = "P@ssw0rd123!Complex2026!"
+  [string]$SqlPass = "P@ssw0rd123!Complex2026"
 )
 
 # Connection string comun (folosit și de ASP)
