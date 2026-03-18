@@ -6,7 +6,7 @@ param(
 )
 
 # Connection string comun (folosit și de ASP)
-$connStr = "Server=$SqlServer;Database=$DbName;User Id=$SqlUser;Password=$SqlPass;Encrypt=yes;TrustServerCertificate=no;"
+$connStr = "Server=$SqlServer,1433;Database=$DbName;User Id=$SqlUser;Password=$SqlPass;Encrypt=yes;TrustServerCertificate=no;"
 
 Write-Output "Connecting to: $SqlServer"
 
