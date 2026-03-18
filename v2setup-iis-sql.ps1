@@ -14,7 +14,7 @@ netsh advfirewall firewall add rule name="Open Port 80" dir=in action=allow prot
 # Fix DB creation + test data - sintaxa simplificata
 sqlcmd -S .\SQLEXPRESS -E -Q "IF NOT EXISTS(SELECT * FROM sys.databases WHERE name='DemoDB') CREATE DATABASE DemoDB"
 sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q "IF OBJECT_ID('Nume','U') IS NULL CREATE TABLE Nume(Id INT IDENTITY PRIMARY KEY, Nume VARCHAR(100))"
-sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q "DELETE FROM Nume; INSERT INTO Nume(Nume) VALUES('Lucian'),('Demo User')"
+sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q "DELETE FROM Nume; INSERT INTO Nume(Nume) VALUES('Lucian'),('Rajesh'),('Demo User')"
 
 # Verifica DB
 $recordCount = sqlcmd -S .\SQLEXPRESS -E -d DemoDB -h-1 -Q "SELECT COUNT(*) AS Total FROM Nume"
