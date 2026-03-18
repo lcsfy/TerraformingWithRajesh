@@ -1,81 +1,71 @@
-# IIS
-Install-WindowsFeature -Name Web-Server -IncludeManagementTools | Out-Null
+# 1. FORȚEAZĂ dir + IIS
+New-Item -Path 'C:\temp' -ItemType Directory -Force -ErrorAction Stop | Out-Null
+Install-WindowsFeature -Name Web-Server -IncludeManagementTools -ErrorAction Stop | Out-Null
 
-# FORȚEAZĂ C:\temp
-if (-not (Test-Path 'C:\temp')) { New-Item 'C:\temp' -ItemType Directory -Force | Out-Null }
-Remove-Item 'C:\temp\*' -Force -Recurse -ErrorAction SilentlyContinue
+# 2. Cleanup vechi
+Get-ChildItem 'C:\temp' -Recurse | Remove-Item -Force -ErrorAction SilentlyContinue
 
-# Prereq VC++ (pentru SQL)
-$vcUrl = 'https://aka.ms/vs/17/release/vc_redist.x64.exe'
-Invoke-WebRequest -Uri $vcUrl -OutFile 'C:\temp\vc_redist.exe' -UseBasicParsing
-Start-Process 'C:\temp\vc_redist.exe' -ArgumentList '/quiet','/norestart' -Wait -NoNewWindow | Out-Null
+# 3. VC++ prereq (SQL dep)
+$vcUrl = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+$vcExe = "C:\temp\vc_redist.exe"
+Invoke-WebRequest -Uri $vcUrl -OutFile $vcExe -UseBasicParsing -ErrorAction Stop
+Start-Process -FilePath $vcExe -ArgumentList "/quiet", "/norestart" -Wait -NoNewWindow | Out-Null
+Remove-Item $vcExe -Force  # Cleanup
 
-# SQL installer
-$sqlUrl = 'https://download.microsoft.com/download/7/f/8/7f8a9c43-8c8a-4f7c-9f92-83c18d96b681/SQL2019-SSEI-Expr.exe'
-$sqlExe = 'C:\temp\sql_installer.exe'  # Nume safe
-if (Test-Path $sqlExe) { Remove-Item $sqlExe -Force }
-Invoke-WebRequest -Uri $sqlUrl -OutFile $sqlExe -UseBasicParsing
+# 4. SQL installer
+$sqlUrl = "https://download.microsoft.com/download/7/f/8/7f8a9c43-8c8a-4f7c-9f92-83c18d96b681/SQL2019-SSEI-Expr.exe"
+$sqlExe = "C:\temp\sql.exe"
+Invoke-WebRequest -Uri $sqlUrl -OutFile $sqlExe -UseBasicParsing -ErrorAction Stop
 
-# Instal SQL
-Write-Output "SQL install start..."
-$p = Start-Process -FilePath $sqlExe -ArgumentList @(
+# 5. Instal SQL
+$args = @(
     '/ACTION=Install', '/QS', '/NORESTART', '/IACCEPTSQLSERVERLICENSETERMS',
     '/FEATURES=SQLENGINE', '/INSTANCENAME=SQLEXPRESS', '/TCPENABLED=1',
-    '/SQLSVCACCOUNT="NT AUTHORITY\NETWORK SERVICE"', 
-    '/SQLSYSADMINACCOUNTS="BUILTIN\Administrators"',
+    '/SQLSVCACCOUNT="NT AUTHORITY\NETWORK SERVICE"', '/SQLSYSADMINACCOUNTS="BUILTIN\Administrators"',
     '/SKIPRULES=RebootRequired'
-) -PassThru -Wait
+)
+$proc = Start-Process -FilePath $sqlExe -ArgumentList $args -Wait -PassThru -NoNewWindow -ErrorAction Stop
 
-if ($p.ExitCode -ne 0 -or $p.ExitCode -gt 3010) {
-    Write-Output "SQL FAIL. Exit: $($p.ExitCode). Logs:"
-    Get-ChildItem 'C:\temp' -Filter '*.log','Summary.txt' | ForEach { Get-Content $_.FullName -Tail 10 }
+if ($proc.ExitCode -ne 0) {
+    "SQL ExitCode: $($proc.ExitCode)" | Out-File 'C:\temp\error.log'
+    Get-ChildItem 'C:\temp' -Filter '*Summary*' | ForEach { Get-Content $_.FullName -Tail 20 } | Tee-Object 'C:\temp\logs.txt'
     exit 1
 }
 
-# Wait SQL ready (max 15min)
-$waited = 0
-do {
-    Start-Sleep 20
-    $waited += 20
+# 6. Wait service + test (10 loops = 5min)
+for ($i = 0; $i -lt 10; $i++) {
     $svc = Get-Service 'MSSQL$SQLEXPRESS' -ErrorAction SilentlyContinue
-} while ((-not $svc -or $svc.Status -ne 'Running') -and $waited -lt 900)
-
-if ($svc.Status -ne 'Running') { 
-    Write-Error "SQL service down after 15min"; exit 1 
+    if ($svc -and $svc.Status -eq 'Running') {
+        Start-Sleep 45
+        $ver = sqlcmd -S .\SQLEXPRESS -E -Q "SELECT @@VERSION" -h-1 -W 2>$null
+        if ($ver -match "SQL Server") { break }
+    }
+    Start-Sleep 30
 }
 
-# Test query
-Start-Sleep 60
-$test = sqlcmd -S .\SQLEXPRESS -E -Q "SELECT @@VERSION" -h-1 2>$null
-if (-not $test) { Write-Error "sqlcmd fail"; exit 1 }
+if (-not $ver) { "SQL test fail" | Out-File 'C:\temp\sql_fail.txt'; exit 1 }
 
-# DB + live data
-sqlcmd -S .\SQLEXPRESS -E -Q "CREATE DATABASE DemoDB IF NOT EXISTS"
-sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q @"
-IF NOT EXISTS(SELECT * FROM sys.tables WHERE name='Nume')
-    CREATE TABLE Nume(Id INT IDENTITY PRIMARY KEY, Nume VARCHAR(100), Created DATETIME DEFAULT GETDATE());
-TRUNCATE TABLE Nume;
-INSERT INTO Nume (Nume) VALUES ('Lucian Enache'), ('Terraform Win'), ('$(hostname)');
-"@
+# 7. DB + data
+sqlcmd -S .\SQLEXPRESS -E -Q "IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'DemoDB') CREATE DATABASE DemoDB"
+sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Nume') CREATE TABLE Nume (Id INT IDENTITY PRIMARY KEY, Nume VARCHAR(100)); TRUNCATE TABLE Nume; INSERT INTO Nume (Nume) VALUES ('Lucian'), ('Demo $(Get-Date -Format ''yyyy-MM-dd'')')"
 
-# LIVE query pentru HTML
+# 8. LIVE query
 $count = sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q "SELECT COUNT(*) FROM Nume" -h-1
-$rows = sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q "SELECT Id, Nume, Created FROM Nume ORDER BY Id" -h-1 -s',' -W
+$data = sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q "SELECT * FROM Nume" -h-1 -W -s '|'
 
+# 9. HTML cu table
 $html = @"
-<!DOCTYPE html>
-<title>IIS + SQL Live</title>
-<style>body{padding:20px;font-family:Arial;}
-table{border-collapse:collapse;width:100%;} th,td{border:1px solid #ddd;padding:8px;}
-th{background:#f2f2f2;}</style>
-<h1>✅ SQL Express + IIS Success!</h1>
-<p>Rows: <b>$count</b> | Server: <b>$(hostname)</b></p>
-<table><tr><th>ID</th><th>Nume</th><th>Created</th></tr>$($rows -replace '^','<tr><td>')replace('\n','</td></tr><tr><td>')</table>
+<!DOCTYPE html><html><head><title>✅ IIS+SQL</title><meta charset="UTF-8">
+<style>body{font-family:Arial;padding:20px;}table{border-collapse:collapse;width:100%;}th,td{border:1px solid #ccc;padding:12px;text-align:left;}th{background:#4285f4;color:white;}</style></head>
+<body><h1>IIS + SQL Express Live Demo</h1>
+<p><strong>Rows:</strong> $count | <strong>Time:</strong> $(Get-Date)</p>
+<table><tr><th>ID</th><th>Nume</th></tr>$($data.Split("`n") -join '</td></tr><tr><td>')</table>
+<p><small>Terraform CustomScript OK</small></p></body></html>
 "@
-
 $html | Out-File 'C:\inetpub\wwwroot\index.html' -Encoding UTF8
 
-netsh advfirewall firewall add rule name="HTTP" dir=in action=allow protocol=TCP localport=80
-iisreset /timeout 60
+# 10. Final
+netsh advfirewall firewall add rule name="IIS80" dir=in action=allow protocol=TCP localport=80
+iisreset /restart
 
-Write-Output "SUCCESS - Check http://localhost"
+"Script 100% SUCCESS" | Out-File 'C:\temp\success.txt'
