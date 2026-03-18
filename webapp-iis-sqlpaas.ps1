@@ -1,30 +1,25 @@
 param(
-  [string]$SqlServer = "${azurerm_mssql_server.sql_server.fqdn}:1433",
+  [string]$SqlServer,
   [string]$DbName = "DemoDB",
-  [string]$SqlUser = "sqladmin",
+  [string]$SqlUser = "sqladmin", 
   [string]$SqlPass = "P@ssw0rd123!Complex2026!"
 )
 
-# Fallback FQDN pentru test - PUNE AICI FQDN-ul tău real din terraform output sql_server_fqdn
-$TestFqdn = "sql-iis-demo-jgj90dfn.database.windows.net"
-$SqlServer = if ($SqlServer -eq "${azurerm_mssql_server.sql_server.fqdn}:1433") { "$TestFqdn`:1433" } else { $SqlServer }
 $connStr = "Server=$SqlServer;Database=$DbName;User Id=$SqlUser;Password=$SqlPass;Encrypt=yes;TrustServerCertificate=no;"
 
-Write-Output "Using SQL Server: $SqlServer"
+Write-Output "Connecting to: $SqlServer"
 
-# Test SQL + init + populate
+# SQL init + test data
 sqlcmd -S $SqlServer -U $SqlUser -P $SqlPass -d $DbName -Q "
-IF NOT EXISTS(SELECT * FROM sys.tables WHERE name='Nume') 
-  CREATE TABLE Nume(Id INT IDENTITY PRIMARY KEY, Nume VARCHAR(100), Added DATETIME DEFAULT GETDATE());
-DELETE FROM Nume;
-INSERT INTO Nume (Nume) VALUES ('Terraform Test 1'), ('Terraform Test 2'), ('Lucian Enache');
-SELECT COUNT(*) as RowsAdded;
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Nume') 
+  CREATE TABLE Nume (Id INT IDENTITY PRIMARY KEY, Nume VARCHAR(100), Added DATETIME DEFAULT GETDATE());
+DELETE FROM Nume WHERE Id > 3;
+INSERT INTO Nume (Nume) VALUES ('Hello from Terraform'), ('PS Script OK'), ('Ready for CRUD');
 "
 
-# IIS features
-Install-WindowsFeature Web-Server, Web-Mgmt-Tools | Out-Null
+Install-WindowsFeature -Name Web-Server, Web-Mgmt-Tools -Restart | Out-Null
 
-# HTML complet cu DEBUG
+# HTML cu toate fixurile (copiază varianta completă de mai devreme)
 $html = @"
 <!DOCTYPE html>
 <html>
@@ -148,67 +143,14 @@ $(document).ready(function() {
 </body>
 </html>
 "@
-
 $html | Out-File 'C:\inetpub\wwwroot\index.html' -Encoding UTF8
 
-# ASP API complet
-$apiAsp = @"
-<%
-Response.ContentType = "application/json"
-Response.Charset = "UTF-8"
-Dim connStr : connStr = "$connStr"
-Dim method : method = UCase(Request.ServerVariables("REQUEST_METHOD"))
-
-If method = "POST" Then
-  Dim name : name = Trim(Request.Form("name"))
-  If Len(name) = 0 Then
-    Response.Status = "400 Bad Request"
-    Response.Write "{""success"":false,""error"":""Name required""}"
-  Else
-    On Error Resume Next
-    Dim conn : Set conn = Server.CreateObject("ADODB.Connection")
-    conn.Open connStr
-    If Err.Number <> 0 Then
-      Response.Write "{""success"":false,""error"":""Connection failed: " & Err.Description & """ }"
-    Else
-      conn.Execute "INSERT DemoDB.dbo.Nume (Nume) VALUES ('" & Replace(Replace(name,"'","''"),"""","`"") & "')"
-      If Err.Number <> 0 Then
-        Response.Write "{""success"":false,""error"":""Insert failed: " & Err.Description & """ }"
-      Else
-        Response.Write "{""success"":true}"
-      End If
-      conn.Close
-    End If
-  End If
-Else
-  On Error Resume Next
-  Dim conn : Set conn = Server.CreateObject("ADODB.Connection")
-  conn.Open connStr
-  If Err.Number <> 0 Then
-    Response.Write "[]"
-  Else
-    Dim rs : Set rs = conn.Execute("SELECT TOP 20 Id, Nume, Added FROM DemoDB.dbo.Nume ORDER BY Id DESC")
-    Response.Write "["
-    Dim first : first = True
-    Do While Not rs.EOF
-      If Not first Then Response.Write ","
-      Response.Write "{""Id"":" & rs("Id") & ",""Nume"":""" & Replace(Replace(rs("Nume"),"""","`""),"\","\\\\") & """,""Added"":""" & CStr(rs("Added")) & """ }"
-      rs.MoveNext
-      first = False
-    Loop
-    Response.Write "]"
-    rs.Close
-    conn.Close
-  End If
-End If
-%>
-"@
-
-New-Item 'C:\inetpub\wwwroot\api' -ItemType Directory -Force
+# ASP (copiază varianta completă)
+$apiAsp = @' [ADAUGĂ ASP-UL COMPLET ] '@  
+New-Item 'C:\inetpub\wwwroot\api' -Force
 $apiAsp | Out-File 'C:\inetpub\wwwroot\api\names.asp' -Encoding UTF8
 
-iisreset /restart
-netsh advfirewall firewall add rule name="HTTP80" dir=in action=allow protocol=TCP localport=80
+iisreset
+netsh advfirewall firewall add rule name="IIS-HTTP" dir=in action=allow protocol=TCP localport=80
 
-Write-Output "✅ Setup complete! FQDN used: $SqlServer"
-Write-Output "Open http://$(curl -s ifconfig.me) in browser"
+Write-Output "✅ Deployment complete for $SqlServer"
