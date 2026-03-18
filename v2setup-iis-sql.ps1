@@ -1,57 +1,81 @@
-# Prereqs (VC++ redist pentru SQL)
-$vcUrl = 'https://aka.ms/vs/17/release/vc_redist.x64.exe'
-Invoke-WebRequest $vcUrl -OutFile 'C:\temp\vc_redist.exe' -UseBasicParsing
-& 'C:\temp\vc_redist.exe' /quiet /norestart | Out-Null
-
 # IIS
-Install-WindowsFeature Web-Server,Web-Mgmt-Tools | Out-Null
+Install-WindowsFeature -Name Web-Server -IncludeManagementTools | Out-Null
 
-# Clean temp
-rmdir C:\temp -Recurse -Force -ErrorAction SilentlyContinue
-New-Item C:\temp -Force | Out-Null
+# FORȚEAZĂ C:\temp
+if (-not (Test-Path 'C:\temp')) { New-Item 'C:\temp' -ItemType Directory -Force | Out-Null }
+Remove-Item 'C:\temp\*' -Force -Recurse -ErrorAction SilentlyContinue
 
-# SQL
+# Prereq VC++ (pentru SQL)
+$vcUrl = 'https://aka.ms/vs/17/release/vc_redist.x64.exe'
+Invoke-WebRequest -Uri $vcUrl -OutFile 'C:\temp\vc_redist.exe' -UseBasicParsing
+Start-Process 'C:\temp\vc_redist.exe' -ArgumentList '/quiet','/norestart' -Wait -NoNewWindow | Out-Null
+
+# SQL installer
 $sqlUrl = 'https://download.microsoft.com/download/7/f/8/7f8a9c43-8c8a-4f7c-9f92-83c18d96b681/SQL2019-SSEI-Expr.exe'
-$sqlExe = 'C:\temp\SQL.exe'
-Invoke-WebRequest $sqlUrl -OutFile $sqlExe
+$sqlExe = 'C:\temp\sql_installer.exe'  # Nume safe
+if (Test-Path $sqlExe) { Remove-Item $sqlExe -Force }
+Invoke-WebRequest -Uri $sqlUrl -OutFile $sqlExe -UseBasicParsing
 
-Write-Output "Installing SQL..."
-$proc = Start-Process $sqlExe -ArgumentList @(
-    '/ACTION=Install','/QS','/NORESTART','/IACCEPTSQLSERVERLICENSETERMS',
-    '/FEATURES=SQLENGINE','/INSTANCENAME=SQLEXPRESS','/TCPENABLED=1',
-    '/SQLSVCACCOUNT="NT AUTHORITY\NETWORK SERVICE"','/SQLSYSADMINACCOUNTS="BUILTIN\Administrators"',
-    '/SKIPRULES=RebootRequired','/IAcceptSQLServerLicenseTerms'
+# Instal SQL
+Write-Output "SQL install start..."
+$p = Start-Process -FilePath $sqlExe -ArgumentList @(
+    '/ACTION=Install', '/QS', '/NORESTART', '/IACCEPTSQLSERVERLICENSETERMS',
+    '/FEATURES=SQLENGINE', '/INSTANCENAME=SQLEXPRESS', '/TCPENABLED=1',
+    '/SQLSVCACCOUNT="NT AUTHORITY\NETWORK SERVICE"', 
+    '/SQLSYSADMINACCOUNTS="BUILTIN\Administrators"',
+    '/SKIPRULES=RebootRequired'
 ) -PassThru -Wait
 
-if ($proc.ExitCode -ne 0) {
-    Write-Output "SQL FAIL exit: $($proc.ExitCode). Logs in C:\temp"
-    Get-Content C:\temp\*.log | Select -Last 20
+if ($p.ExitCode -ne 0 -or $p.ExitCode -gt 3010) {
+    Write-Output "SQL FAIL. Exit: $($p.ExitCode). Logs:"
+    Get-ChildItem 'C:\temp' -Filter '*.log','Summary.txt' | ForEach { Get-Content $_.FullName -Tail 10 }
     exit 1
 }
 
-# Wait & test SQL (10min max)
-for ($i=0; $i -lt 120; $i++) {
-    if ((Get-Service MSSQL$SQLEXPRESS).Status -eq 'Running') {
-        Start-Sleep 60
-        try {
-            sqlcmd -S .\SQLEXPRESS -E -Q "SELECT @@VERSION" -h-1 -W
-            break
-        } catch {}
-    }
-    Start-Sleep 30
+# Wait SQL ready (max 15min)
+$waited = 0
+do {
+    Start-Sleep 20
+    $waited += 20
+    $svc = Get-Service 'MSSQL$SQLEXPRESS' -ErrorAction SilentlyContinue
+} while ((-not $svc -or $svc.Status -ne 'Running') -and $waited -lt 900)
+
+if ($svc.Status -ne 'Running') { 
+    Write-Error "SQL service down after 15min"; exit 1 
 }
 
-# DB live
-sqlcmd -S .\SQLEXPRESS -E -Q "CREATE DATABASE DemoDB"
-sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q "CREATE TABLE Nume(Id INT PRIMARY KEY, Nume VARCHAR(50)); INSERT INTO Nume VALUES (1,'Lucian'),(2,'Success'),(3,'$(hostname)')"
+# Test query
+Start-Sleep 60
+$test = sqlcmd -S .\SQLEXPRESS -E -Q "SELECT @@VERSION" -h-1 2>$null
+if (-not $test) { Write-Error "sqlcmd fail"; exit 1 }
 
-# Query live pentru HTML
+# DB + live data
+sqlcmd -S .\SQLEXPRESS -E -Q "CREATE DATABASE DemoDB IF NOT EXISTS"
+sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q @"
+IF NOT EXISTS(SELECT * FROM sys.tables WHERE name='Nume')
+    CREATE TABLE Nume(Id INT IDENTITY PRIMARY KEY, Nume VARCHAR(100), Created DATETIME DEFAULT GETDATE());
+TRUNCATE TABLE Nume;
+INSERT INTO Nume (Nume) VALUES ('Lucian Enache'), ('Terraform Win'), ('$(hostname)');
+"@
+
+# LIVE query pentru HTML
 $count = sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q "SELECT COUNT(*) FROM Nume" -h-1
-$data = sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q "SELECT * FROM Nume" -h-1
+$rows = sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q "SELECT Id, Nume, Created FROM Nume ORDER BY Id" -h-1 -s',' -W
 
-@"
-<h1>LIVE SQL Data ($count rows)</h1><pre>$data</pre>
-"@ | Out-File C:\inetpub\wwwroot\index.html -Encoding UTF8
+$html = @"
+<!DOCTYPE html>
+<title>IIS + SQL Live</title>
+<style>body{padding:20px;font-family:Arial;}
+table{border-collapse:collapse;width:100%;} th,td{border:1px solid #ddd;padding:8px;}
+th{background:#f2f2f2;}</style>
+<h1>✅ SQL Express + IIS Success!</h1>
+<p>Rows: <b>$count</b> | Server: <b>$(hostname)</b></p>
+<table><tr><th>ID</th><th>Nume</th><th>Created</th></tr>$($rows -replace '^','<tr><td>')replace('\n','</td></tr><tr><td>')</table>
+"@
 
-netsh advfirewall firewall add rule name="Port80" dir=in action=allow protocol=TCP localport=80
-iisreset
+$html | Out-File 'C:\inetpub\wwwroot\index.html' -Encoding UTF8
+
+netsh advfirewall firewall add rule name="HTTP" dir=in action=allow protocol=TCP localport=80
+iisreset /timeout 60
+
+Write-Output "SUCCESS - Check http://localhost"
