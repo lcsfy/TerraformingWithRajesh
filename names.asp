@@ -2,13 +2,13 @@
 Response.ContentType = "application/json"
 Dim connStr : connStr = "__CONNSTR__"
 
-Dim conn 
+Dim conn
 
 If Request.ServerVariables("REQUEST_METHOD") = "POST" Then
   Dim name : name = Trim(Request.Form("name"))
   If Len(name) > 0 Then
     Set conn = Server.CreateObject("ADODB.Connection")
-    conn.Open connStr
+    conn.Open "Provider=SQLNCLI11; " & connStr
     conn.Execute "INSERT dbo.Nume (Nume) VALUES ('" & Replace(name, "'", "''") & "')"
     conn.Close
     Set conn = Nothing
@@ -18,7 +18,7 @@ If Request.ServerVariables("REQUEST_METHOD") = "POST" Then
   End If
 Else
   Set conn = Server.CreateObject("ADODB.Connection")
-  conn.Open connStr
+  conn.Open "Provider=SQLNCLI11; " & connStr
   Dim rs : Set rs = conn.Execute("SELECT TOP 20 Id, Nume, Added FROM dbo.Nume ORDER BY Id DESC")
   Dim first : first = True
   Response.Write "["
