@@ -119,11 +119,25 @@
         }
     }
 
-    function deleteRecord(id) {
-        if (!confirm('Delete row ' + id + '?')) return;
-        // TODO: implement DELETE în API dacă vrei
-        refreshTable();
+async function deleteRecord(id) {
+    if (!confirm('Delete row ' + id + '?')) return;
+    
+    try {
+        const res = await fetch(apiUrl + '?action=delete&id=' + id, {
+            method: 'DELETE'
+        });
+        if (res.ok) {
+            const data = await res.json();
+            showStatus(data.message);
+            refreshTable();
+        } else {
+            const err = await res.text();
+            showStatus('Delete failed: ' + err, true);
+        }
+    } catch (e) {
+        showStatus('Network error: ' + e.message, true);
     }
+}
 
     $(document).ready(function() {
         refreshTable();
