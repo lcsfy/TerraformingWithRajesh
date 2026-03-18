@@ -2,7 +2,7 @@ param(
   [string]$SqlServer,
   [string]$DbName  = "DemoDB",
   [string]$SqlUser = "sqladmin",
-  [string]$SqlPass = "P@ssw0rd123!Complex2026"   # pune aici parola din azurerm_mssql_server
+  [string]$SqlPass = "P@ssw0rd123!Complex2026"   # trebuie să fie IDENTICĂ cu parola din azurerm_mssql_server
 )
 
 # --------- Conn string comun (PS + ASP) ---------
@@ -11,7 +11,7 @@ $sqlServerWithPort = "$SqlServer,1433"
 $connStr           = "Server=$sqlServerWithPort;Database=$DbName;User Id=$SqlUser;Password=$SqlPass;Encrypt=yes;TrustServerCertificate=no;"
 
 Write-Output "Connecting to: $SqlServer"
-Write-Output "ConnStr (preview): Server=$SqlServerWithPort;Database=$DbName;User Id=$SqlUser;Encrypt=yes;..."
+Write-Output "ConnStr (preview): Server=$sqlServerWithPort;Database=$DbName;User Id=$SqlUser;Encrypt=yes;..."
 
 # --------- SQL init via .NET (fără sqlcmd) ---------
 $createSql = @"
