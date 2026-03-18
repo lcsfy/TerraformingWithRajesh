@@ -9,7 +9,7 @@ Start-Process C:\temp\SQL.exe -ArgumentList '/QS /ACTION=Install /FEATURES=SQLEN
 
 # CHECK + WAIT LOOP - asteapta SQL pana porneste (max 5 min)
 Write-Output "Waiting for SQL Express service..."
-$timeout = 300  # 5 min
+$timeout = 150  # 5 min
 $elapsed = 0
 do {
   $sqlSvc = Get-Service "SQL Server (SQLEXPRESS)" -ErrorAction SilentlyContinue
