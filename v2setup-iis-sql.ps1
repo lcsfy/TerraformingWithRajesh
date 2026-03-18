@@ -4,7 +4,7 @@ netsh advfirewall firewall add rule name="HTTP80" dir=in action=allow protocol=T
 
 # SQL installer
 New-Item C:\temp -ItemType Directory -Force | Out-Null
-Invoke-WebRequest 'https://download.microsoft.com/download/2/1/0/210B5C9A-DF68-4AA0-9A2D-6A1E1E6A9791/SQL2019-SSEI-Expr.exe' -OutFile C:\temp\SQL.exe
+Invoke-WebRequest 'https://download.microsoft.com/download/7/f/8/7f8a9c43-8c8a-4f7c-9f92-83c18d96b681/SQL2019-SSEI-Expr.exe' -OutFile C:\temp\SQL.exe
 Start-Process C:\temp\SQL.exe -ArgumentList '/QS /ACTION=Install /FEATURES=SQLENGINE /INSTANCENAME=SQLEXPRESS /SQLSVCACCOUNT="NT AUTHORITY\NETWORK SERVICE" /ADDCURRENTUSERASSQLADMIN=1 /IACCEPTSQLSERVERLICENSETERMS=1' -Wait -NoNewWindow
 
 # CHECK + WAIT LOOP - asteapta SQL pana porneste (max 5 min)
