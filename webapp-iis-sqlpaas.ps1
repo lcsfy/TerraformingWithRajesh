@@ -82,8 +82,8 @@ function testSql() {
             if (!res.ok) throw new Error('HTTP ' + res.status);
             return res.json();
         })
-        .then(data => showStatus('✅ SQL OK! ' + data.length + ' rows loaded'))
-        .catch(e => showStatus('❌ SQL Error: ' + e.message, true));
+        .then(data => showStatus('SQL OK! ' + data.length + ' rows loaded'))
+        .catch(e => showStatus('SQL Error: ' + e.message, true));
 }
 
 function clearDebug() {
@@ -100,7 +100,7 @@ async function refreshTable() {
             html += `<tr><td>${row.Id}</td><td>${row.Nume}</td><td>${new Date(row.Added).toLocaleString()}</td><td><button onclick="deleteRecord(${row.Id})">🗑️</button></td></tr>`;
         });
         $('#dataTable tbody').html(html);
-        showStatus(`✅ Loaded ${data.length} records`);
+        showStatus(`Loaded ${data.length} records`);
     } catch(e) {
         showStatus('Error loading: ' + e.message, true);
     }
@@ -119,7 +119,7 @@ async function addRecord() {
         if (res.ok) {
             $('#newName').val('');
             refreshTable();
-            showStatus('✅ Added successfully!');
+            showStatus('Added successfully!');
         } else {
             const err = await res.text();
             showStatus('Add failed: ' + err, true);
@@ -153,4 +153,4 @@ $apiAsp | Out-File 'C:\inetpub\wwwroot\api\names.asp' -Encoding UTF8
 iisreset
 netsh advfirewall firewall add rule name="IIS-HTTP" dir=in action=allow protocol=TCP localport=80
 
-Write-Output "✅ Deployment complete for $SqlServer"
+Write-Output "Deployment complete for $SqlServer"
