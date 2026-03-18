@@ -124,7 +124,7 @@ async function deleteRecord(id) {
     
     try {
         const res = await fetch(apiUrl + '?action=delete&id=' + id, {
-            method: 'DELETE'
+            method: 'Get'
         });
         if (res.ok) {
             const data = await res.json();
