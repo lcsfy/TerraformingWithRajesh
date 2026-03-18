@@ -16,8 +16,7 @@ IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Nume')
 DELETE FROM Nume WHERE Id > 3;
 INSERT INTO Nume (Nume) VALUES ('Hello from Terraform'), ('PS Script OK'), ('Ready for CRUD');
 "
-
-Install-WindowsFeature -Name Web-Server, Web-Mgmt-Tools -Restart | Out-Null
+Install-WindowsFeature -Name Web-Server, Web-Mgmt-Tools, Web-ASP -Restart | Out-Null
 
 # HTML cu toate fixurile (copiază varianta completă de mai devreme)
 $html = @"
