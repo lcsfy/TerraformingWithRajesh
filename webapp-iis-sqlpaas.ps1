@@ -1,14 +1,17 @@
 param(
   [string]$SqlServer,
-  [string]$DbName = "DemoDB",
+  [string]$DbName  = "DemoDB",
   [string]$SqlUser = "sqladmin",
-  [string]$SqlPass = "P@ssw0rd123!Complex2026"
+  [string]$SqlPass = "P@ssw0rd123!Complex2026"   # pune aici parola din azurerm_mssql_server
 )
 
-# Connection string comun (folosit și de ASP)
-$connStr = "Server=$SqlServer"+",1433"+";Database=$DbName;User Id=$SqlUser;Password=$SqlPass;Encrypt=yes;TrustServerCertificate=no;"
+# --------- Conn string comun (PS + ASP) ---------
+# SqlServer vine ca FQDN (ex: sql-iis-demo-xxx.database.windows.net)
+$sqlServerWithPort = "$SqlServer,1433"
+$connStr           = "Server=$sqlServerWithPort;Database=$DbName;User Id=$SqlUser;Password=$SqlPass;Encrypt=yes;TrustServerCertificate=no;"
 
 Write-Output "Connecting to: $SqlServer"
+Write-Output "ConnStr (preview): Server=$SqlServerWithPort;Database=$DbName;User Id=$SqlUser;Encrypt=yes;..."
 
 # --------- SQL init via .NET (fără sqlcmd) ---------
 $createSql = @"
@@ -30,20 +33,20 @@ VALUES ('Hello from Terraform'), ('PS Script OK'), ('Ready for CRUD');
 Add-Type -AssemblyName System.Data
 
 try {
-  $cn = New-Object System.Data.SqlClient.SqlConnection $connStr
+  $cn  = New-Object System.Data.SqlClient.SqlConnection $connStr
   $cn.Open()
   $cmd = $cn.CreateCommand()
   $cmd.CommandText = $createSql
   $cmd.ExecuteNonQuery() | Out-Null
   $cn.Close()
-  Write-Output "SQL init done (table dbo.Nume, 3 rows)."
+  Write-Output "SQL init done (table dbo.Nume, max 3 rows)."
 }
 catch {
   Write-Error "SQL init failed: $($_.Exception.Message)"
   throw
 }
 
-# --------- IIS + ASP ---------
+# --------- IIS + Classic ASP ---------
 Install-WindowsFeature -Name Web-Server, Web-Mgmt-Tools, Web-ASP | Out-Null
 Write-Output "IIS + Classic ASP installed."
 
@@ -74,23 +77,23 @@ tr:hover{background:#f8f9fa;}
 </head>
 <body>
 <h1>🗄️ IIS + Azure SQL PaaS - CRUD Demo</h1>
-<div id='status'></div>
+<div id="status"></div>
 
-<div class='debug'>
+<div class="debug">
   <strong>🔧 DEBUG INFO (pentru test):</strong><br>
-  SQL Server FQDN: <span id='sqlServer'>$SqlServer</span><br>
+  SQL Server FQDN: <span id="sqlServer">$SqlServer</span><br>
   ConnStr preview: Server=...;Database=$DbName (parola hidden)<br>
-  <button onclick='testSql()'>🔍 Test SQL Connection</button>
-  <button onclick='clearDebug()'>X Hide Debug</button>
+  <button onclick="testSql()">🔍 Test SQL Connection</button>
+  <button onclick="clearDebug()">X Hide Debug</button>
 </div>
 
-<div id='add-form'>
-    <input type='text' id='newName' placeholder='Enter name (ex: Test User)'>
-    <button onclick='addRecord()'>➕ Add Record</button>
-    <button onclick='refreshTable()'>🔄 Refresh</button>
+<div id="add-form">
+    <input type="text" id="newName" placeholder="Enter name (ex: Test User)">
+    <button onclick="addRecord()">➕ Add Record</button>
+    <button onclick="refreshTable()">🔄 Refresh</button>
 </div>
 
-<table id='dataTable'>
+<table id="dataTable">
     <thead><tr><th>ID</th><th>Nume</th><th>Added</th><th>Actions</th></tr></thead>
     <tbody></tbody>
 </table>
@@ -100,19 +103,26 @@ const apiUrl = '/api/names.asp';
 
 function showStatus(msg, isError=false) {
     const status = $('#status');
-    status.text(msg).removeClass('success error')
+    status.text(msg)
+          .removeClass('success error')
           .addClass(isError ? 'error' : 'success')
-          .show().delay(4000).fadeOut();
+          .show()
+          .delay(4000)
+          .fadeOut();
 }
 
 function testSql() {
     fetch(apiUrl)
-        .then(res => {
+        .then(function(res) {
             if (!res.ok) throw new Error('HTTP ' + res.status);
             return res.json();
         })
-        .then(data => showStatus('SQL OK! ' + data.length + ' rows loaded'))
-        .catch(e => showStatus('SQL Error: ' + e.message, true));
+        .then(function(data) {
+            showStatus('SQL OK! ' + data.length + ' rows loaded');
+        })
+        .catch(function(e) {
+            showStatus('SQL Error: ' + e.message, true);
+        });
 }
 
 function clearDebug() {
@@ -125,17 +135,17 @@ async function refreshTable() {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         let html = '';
-        data.forEach(row => {
-            html += \`<tr>
-                        <td>\${row.Id}</td>
-                        <td>\${row.Nume}</td>
-                        <td>\${new Date(row.Added).toLocaleString()}</td>
-                        <td><button onclick="deleteRecord(\${row.Id})">🗑️</button></td>
-                      </tr>\`;
+        data.forEach(function(row) {
+            html += '<tr>' +
+                        '<td>' + row.Id + '</td>' +
+                        '<td>' + row.Nume + '</td>' +
+                        '<td>' + new Date(row.Added).toLocaleString() + '</td>' +
+                        '<td><button onclick="deleteRecord(' + row.Id + ')">🗑️</button></td>' +
+                    '</tr>';
         });
         $('#dataTable tbody').html(html);
-        showStatus(\`Loaded \${data.length} records\`);
-    } catch(e) {
+        showStatus('Loaded ' + data.length + ' records');
+    } catch (e) {
         showStatus('Error loading: ' + e.message, true);
     }
 }
@@ -158,7 +168,7 @@ async function addRecord() {
             const err = await res.text();
             showStatus('Add failed: ' + err, true);
         }
-    } catch(e) {
+    } catch (e) {
         showStatus('Network error: ' + e.message, true);
     }
 }
@@ -180,7 +190,7 @@ $(document).ready(function() {
 
 $html | Out-File 'C:\inetpub\wwwroot\index.html' -Encoding UTF8
 
-# --------- ASP API ---------
+# --------- ASP API (Classic ASP, JSON simplu) ---------
 $apiAsp = @"
 <%
 Response.ContentType = ""application/json""
@@ -191,7 +201,7 @@ If Request.ServerVariables(""REQUEST_METHOD"") = ""POST"" Then
   If Len(name) > 0 Then
     Dim conn : Set conn = Server.CreateObject(""ADODB.Connection"")
     conn.Open connStr
-    conn.Execute ""INSERT dbo.Nume(Nume) VALUES(''"" & Replace(name, ""'"", ""''"") & ""'')""
+    conn.Execute ""INSERT dbo.Nume (Nume) VALUES ( '"" & Replace(name, ""'"", ""''"") & ""' )""
     conn.Close
     Response.Write ""{""""success"""":true}""
   Else
@@ -201,14 +211,14 @@ Else
   Dim conn : Set conn = Server.CreateObject(""ADODB.Connection"")
   conn.Open connStr
   Dim rs : Set rs = conn.Execute(""SELECT TOP 20 Id, Nume, Added FROM dbo.Nume ORDER BY Id DESC"")
-  Response.Write ""[""
   Dim first : first = True
+  Response.Write ""[""
   Do While Not rs.EOF
     If Not first Then Response.Write "",""
     Response.Write ""{""""Id"""":""
     Response.Write rs(""Id"")
     Response.Write "",""""Nume"""":""""
-    Response.Write Replace(rs(""Nume""), """""", ""\\""")
+    Response.Write Replace(rs(""Nume""), """""", ""'"")
     Response.Write """""",""""Added"""":""""
     Response.Write rs(""Added"")
     Response.Write """"}""
@@ -216,6 +226,7 @@ Else
     first = False
   Loop
   Response.Write ""]""
+  rs.Close
   conn.Close
 End If
 %>
