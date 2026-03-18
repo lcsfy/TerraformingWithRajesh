@@ -51,7 +51,8 @@ Install-WindowsFeature -Name Web-Server, Web-Mgmt-Tools, Web-ASP | Out-Null
 Write-Output "IIS + Classic ASP installed."
 
 # --------- HTML (frontend) ---------
-$html = @"
+# Folosim here-string CU ghilimele simple (@' '@) ca să nu ne atingă nimeni de jQuery ($...)
+$htmlTemplate = @'
 <!DOCTYPE html>
 <html>
 <head>
@@ -81,8 +82,8 @@ tr:hover{background:#f8f9fa;}
 
 <div class="debug">
   <strong>🔧 DEBUG INFO (pentru test):</strong><br>
-  SQL Server FQDN: <span id="sqlServer">$SqlServer</span><br>
-  ConnStr preview: Server=...;Database=$DbName (parola hidden)<br>
+  SQL Server FQDN: <span id="sqlServer">__SQLSERVER__</span><br>
+  ConnStr preview: Server=...;Database=__DBNAME__ (parola hidden)<br>
   <button onclick="testSql()">🔍 Test SQL Connection</button>
   <button onclick="clearDebug()">X Hide Debug</button>
 </div>
@@ -186,51 +187,56 @@ $(document).ready(function() {
 </script>
 </body>
 </html>
-"@
+'@
+
+# Injectăm FQDN și numele DB în template
+$html = $htmlTemplate.Replace('__SQLSERVER__', $SqlServer).Replace('__DBNAME__', $DbName)
 
 $html | Out-File 'C:\inetpub\wwwroot\index.html' -Encoding UTF8
 
 # --------- ASP API (Classic ASP, JSON simplu) ---------
-$apiAsp = @"
+$apiAspTemplate = @'
 <%
-Response.ContentType = ""application/json""
-Dim connStr : connStr = ""$connStr""
+Response.ContentType = "application/json"
+Dim connStr : connStr = "__CONNSTR__"
 
-If Request.ServerVariables(""REQUEST_METHOD"") = ""POST"" Then
-  Dim name : name = Trim(Request.Form(""name""))
+If Request.ServerVariables("REQUEST_METHOD") = "POST" Then
+  Dim name : name = Trim(Request.Form("name"))
   If Len(name) > 0 Then
-    Dim conn : Set conn = Server.CreateObject(""ADODB.Connection"")
+    Dim conn : Set conn = Server.CreateObject("ADODB.Connection")
     conn.Open connStr
-    conn.Execute ""INSERT dbo.Nume (Nume) VALUES ( '"" & Replace(name, ""'"", ""''"") & ""' )""
+    conn.Execute "INSERT dbo.Nume (Nume) VALUES ('" & Replace(name, "'", "''") & "')"
     conn.Close
-    Response.Write ""{""""success"""":true}""
+    Response.Write "{""success"":true}"
   Else
-    Response.Write ""{""""success"""":false}""
+    Response.Write "{""success"":false}"
   End If
 Else
-  Dim conn : Set conn = Server.CreateObject(""ADODB.Connection"")
+  Dim conn : Set conn = Server.CreateObject("ADODB.Connection")
   conn.Open connStr
-  Dim rs : Set rs = conn.Execute(""SELECT TOP 20 Id, Nume, Added FROM dbo.Nume ORDER BY Id DESC"")
+  Dim rs : Set rs = conn.Execute("SELECT TOP 20 Id, Nume, Added FROM dbo.Nume ORDER BY Id DESC")
   Dim first : first = True
-  Response.Write ""[""
+  Response.Write "["
   Do While Not rs.EOF
-    If Not first Then Response.Write "",""
-    Response.Write ""{""""Id"""":""
-    Response.Write rs(""Id"")
-    Response.Write "",""""Nume"""":""""
-    Response.Write Replace(rs(""Nume""), """""", ""'"")
-    Response.Write """""",""""Added"""":""""
-    Response.Write rs(""Added"")
-    Response.Write """"}""
+    If Not first Then Response.Write ","
+    Response.Write "{""Id"":"
+    Response.Write rs("Id")
+    Response.Write ",""Nume"":"""
+    Response.Write Replace(rs("Nume"), """", "'")
+    Response.Write """,""Added"":"""
+    Response.Write rs("Added")
+    Response.Write """}"
     rs.MoveNext
     first = False
   Loop
-  Response.Write ""]""
+  Response.Write "]"
   rs.Close
   conn.Close
 End If
 %>
-"@
+'@
+
+$apiAsp = $apiAspTemplate.Replace('__CONNSTR__', $connStr)
 
 New-Item 'C:\inetpub\wwwroot\api' -ItemType Directory -Force | Out-Null
 $apiAsp | Out-File 'C:\inetpub\wwwroot\api\names.asp' -Encoding UTF8
