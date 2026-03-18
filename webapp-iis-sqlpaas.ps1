@@ -7,6 +7,13 @@ param(
 
 $connStr = "Server=$SqlServer;Database=$DbName;User Id=$SqlUser;Password=$SqlPass;Encrypt=yes;TrustServerCertificate=no;"
 
+# Install sqlcmd if missing
+if (!(Get-Command sqlcmd -ErrorAction SilentlyContinue)) {
+  Write-Output "Installing sqlcmd..."
+  winget install Microsoft.Sqlcmd --accept-source-agreements --accept-package-agreements | Out-Null
+  $env:PATH += ";C:\Program Files\Microsoft SQL Server\Client SDK\ODBC\18.0\Tools\Binn\"
+}
+
 Write-Output "Connecting to: $SqlServer"
 
 # SQL init + test data
