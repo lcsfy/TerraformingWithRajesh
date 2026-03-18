@@ -177,7 +177,7 @@ Else
 End If
 %>
 "@ 
-New-Item 'C:\inetpub\wwwroot\api' -Force
+Mkdir api 'C:\inetpub\wwwroot\api' -Force
 $apiAsp | Out-File 'C:\inetpub\wwwroot\api\names.asp' -Encoding UTF8
 
 iisreset
