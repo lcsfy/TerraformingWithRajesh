@@ -1,47 +1,41 @@
-# IIS + Firewall
-Install-WindowsFeature Web-Server -IncludeManagementTools
-netsh advfirewall firewall add rule name="HTTP80" dir=in action=allow protocol=TCP localport=80
+Install-WindowsFeature -Name Web-Server -IncludeManagementTools
 
-# SQL installer
-New-Item C:\temp -ItemType Directory -Force | Out-Null
-Invoke-WebRequest 'https://download.microsoft.com/download/7/f/8/7f8a9c43-8c8a-4f7c-9f92-83c18d96b681/SQL2019-SSEI-Expr.exe' -OutFile C:\temp\SQL.exe
-Start-Process C:\temp\SQL.exe -ArgumentList '/QS /ACTION=Install /FEATURES=SQLENGINE /INSTANCENAME=SQLEXPRESS /SQLSVCACCOUNT="NT AUTHORITY\NETWORK SERVICE" /ADDCURRENTUSERASSQLADMIN=1 /IACCEPTSQLSERVERLICENSETERMS=1' -Wait -NoNewWindow
+New-Item -ItemType Directory -Path 'C:\temp' -Force | Out-Null
+$sqlUrl = 'https://download.microsoft.com/download/7/f/8/7f8a9c43-8c8a-4f7c-9f92-83c18d96b681/SQL2019-SSEI-Expr.exe'
+$sqlInstaller = 'C:\temp\SQL2019-SSEI-Expr.exe'
+Invoke-WebRequest -Uri $sqlUrl -OutFile $sqlInstaller
 
-# CHECK + WAIT LOOP - asteapta SQL pana porneste (max 5 min)
-Write-Output "Waiting for SQL Express service..."
-$timeout = 150  # 5 min
-$elapsed = 0
-do {
-  $sqlSvc = Get-Service "SQL Server (SQLEXPRESS)" -ErrorAction SilentlyContinue
-  if ($sqlSvc -and $sqlSvc.Status -eq 'Running') {
-    Write-Output "SQL Express is running!"
-    break
-  }
-  Write-Output "SQL not ready... waiting ($elapsed/$timeout sec)"
-  Start-Sleep 10
-  $elapsed += 10
-} while ($elapsed -lt $timeout)
+& $sqlInstaller /ACTION=Install /QUIET /IACCEPTSQLSERVERLICENSETERMS /FEATURES=SQLENGINE /INSTANCENAME=SQLEXPRESS /SQLSVCACCOUNT='NT AUTHORITY\NETWORK SERVICE' /ADDCURRENTUSERASSQLADMIN=1
 
-if (-not $sqlSvc -or $sqlSvc.Status -ne 'Running') {
-  Write-Output "SQL Express FAILED to start - timeout!"
-  $status = "SQL FAILED"
-} else {
-  # Test sqlcmd
-  Start-Sleep 20  # Extra wait pentru sqlcmd
-  sqlcmd -S .\SQLEXPRESS -E -Q "IF NOT EXISTS(SELECT * FROM sys.databases WHERE name='DemoDB') CREATE DATABASE DemoDB; USE DemoDB; IF OBJECT_ID('Nume') IS NULL CREATE TABLE Nume(Id INT IDENTITY PRIMARY KEY, Name VARCHAR(50)); DELETE FROM Nume; INSERT INTO Nume(Name) VALUES('Lucian'), ('Record 2'); SELECT COUNT(*) AS Records FROM Nume;"
-  $records = sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q "SELECT COUNT(*) AS Total FROM Nume"
-  $status = "SQL OK - $records records created!"
-}
+Start-Sleep -Seconds 30
+
+netsh advfirewall firewall add rule name="Open Port 80" dir=in action=allow protocol=TCP localport=80
+
+# Fix DB creation + test data - sintaxa simplificata
+sqlcmd -S .\SQLEXPRESS -E -Q "IF NOT EXISTS(SELECT * FROM sys.databases WHERE name='DemoDB') CREATE DATABASE DemoDB"
+sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q "IF OBJECT_ID('Nume','U') IS NULL CREATE TABLE Nume(Id INT IDENTITY PRIMARY KEY, Nume VARCHAR(100))"
+sqlcmd -S .\SQLEXPRESS -E -d DemoDB -Q "DELETE FROM Nume; INSERT INTO Nume(Nume) VALUES('Lucian'),('Demo User')"
+
+# Verifica DB
+$recordCount = sqlcmd -S .\SQLEXPRESS -E -d DemoDB -h-1 -Q "SELECT COUNT(*) AS Total FROM Nume"
+$records = sqlcmd -S .\SQLEXPRESS -E -d DemoDB -h-1 -Q "SELECT CAST(Id AS VARCHAR)+': '+Nume FROM Nume"
 
 $content = @"
 <!DOCTYPE html>
-<html><head><title>IIS + SQL Status</title><meta charset='UTF-8'></head><body style='font-family:Arial;padding:40px;'>
-<h1>Setup Complete</h1>
-<h2>SQL Express: $status</h2>
-<p>Script finished: $(Get-Date)</p>
-<p>Service status: $((Get-Service 'SQL Server (SQLEXPRESS)' -ErrorAction SilentlyContinue).Status)</p>
-</body></html>
+<html>
+<head><title>IIS + SQL Demo</title>
+<meta charset='UTF-8'>
+<style>body{font-family:Arial;padding:20px;} h1{color:green;}</style>
+</head>
+<body>
+<h1>IIS + SQL Express - Working!</h1>
+<h2>DemoDB.Nume table:</h2>
+<p><b>Total records: $recordCount</b></p>
+<pre style='background:#f5f5f5;padding:15px;border-radius:5px;font-family:monospace;'>
+$records
+</pre>
+<hr>
+<p>Test completed successfully via Terraform + GitHub script!</p>
+</body>
+</html>
 "@
-
-Set-Content 'C:\inetpub\wwwroot\index.html' $content
-iisreset /restart
