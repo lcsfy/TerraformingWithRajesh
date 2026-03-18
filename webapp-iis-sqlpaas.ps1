@@ -146,7 +146,37 @@ $(document).ready(function() {
 $html | Out-File 'C:\inetpub\wwwroot\index.html' -Encoding UTF8
 
 # ASP (copiază varianta completă)
-$apiAsp = @' [ADAUGĂ ASP-UL COMPLET ] '@  
+$apiAsp=@"
+<%
+Response.ContentType="application/json"
+Dim connStr:connStr="$connStr"
+If Request.ServerVariables("REQUEST_METHOD")="POST" Then
+  Dim name:name=Trim(Request.Form("name"))
+  If Len(name)>0 Then
+    Dim conn:Set conn=Server.CreateObject("ADODB.Connection")
+    conn.Open connStr
+    conn.Execute "INSERT DemoDB.dbo.Nume(Nume) VALUES('"&Replace(name,"'","''")&"')"
+    conn.Close
+    Response.Write "{""success"":true}"
+  Else
+    Response.Write "{""success"":false}"
+  End If
+Else
+  Dim conn:Set conn=Server.CreateObject("ADODB.Connection")
+  conn.Open connStr
+  Dim rs:Set rs=conn.Execute("SELECT TOP 20 Id,Nume,Added FROM DemoDB.dbo.Nume ORDER BY Id DESC")
+  Response.Write "["
+  Dim first:first=True
+  Do While Not rs.EOF
+    If Not first Then Response.Write ","
+    Response.Write "{""Id"":"&rs("Id")&",""Nume"":"""&Replace(rs("Nume"),"""","\""")&""",""Added"":"""&rs("Added")&"""}"
+    rs.MoveNext:first=False
+  Loop
+  Response.Write "]"
+  conn.Close
+End If
+%>
+"@ 
 New-Item 'C:\inetpub\wwwroot\api' -Force
 $apiAsp | Out-File 'C:\inetpub\wwwroot\api\names.asp' -Encoding UTF8
 
